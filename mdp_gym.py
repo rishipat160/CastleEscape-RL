@@ -4,6 +4,12 @@ import numpy as np
 import random
 
 class CastleEscapeEnv(gym.Env):
+    """
+    Castle Escape Environment - A reinforcement learning environment where an agent
+    must navigate through a castle, avoiding or confronting guards, to reach the exit.
+    
+    The environment implements the OpenAI Gym interface.
+    """
     metadata = {'render.modes': ['human']}
 
     def __init__(self):
@@ -11,9 +17,9 @@ class CastleEscapeEnv(gym.Env):
         # Define a 5x5 grid (numbered from (0,0) to (4,4))
         self.grid_size = 5
         self.rooms = [(i, j) for i in range(self.grid_size) for j in range(self.grid_size)]
-        self.goal_room = (4, 4)  # Define the goal room
+        self.goal_room = (4, 4)  # Exit is located at the bottom-right corner
 
-        # Define health states
+        # Define health states and their numeric representations
         self.health_states = ['Full', 'Injured', 'Critical']
         self.health_state_to_int = {'Full': 2, 'Injured': 1, 'Critical': 0}
         self.int_to_health_state = {2: 'Full', 1: 'Injured', 0: 'Critical'}
@@ -27,19 +33,19 @@ class CastleEscapeEnv(gym.Env):
         }
         self.guard_names = list(self.guards.keys())
 
-        # Rewards
+        # Reward structure
         self.rewards = {
-            'goal': 10000,
-            'combat_win': 10,
-            'combat_loss': -1000,
-            'defeat': -1000
+            'goal': 10000,       # Reaching the exit
+            'combat_win': 10,    # Successfully defeating a guard
+            'combat_loss': -1000, # Losing in combat
+            'defeat': -1000      # Game over (critical health)
         }
 
-        # Actions
+        # Available actions
         self.actions = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'FIGHT', 'HIDE']
         self.action_space = spaces.Discrete(len(self.actions))
 
-        # Observation space
+        # Observation space definition
         obs_space_dict = {
             'player_position': spaces.Tuple((spaces.Discrete(self.grid_size), spaces.Discrete(self.grid_size))),
             'player_health': spaces.Discrete(len(self.health_states)),
@@ -50,27 +56,44 @@ class CastleEscapeEnv(gym.Env):
         }
         self.observation_space = spaces.Dict(obs_space_dict)
 
-        # Set initial state
+        # Initialize the environment state
         self.reset()
 
     def reset(self):
-        """Resets the game to the initial state"""
-        #print(self.rooms[1:-1])
-        rnd_indices = np.random.choice(range(1,len(self.rooms)-1), size=len(self.guards), replace=False)
+        """
+        Resets the environment to the initial state.
+        
+        Returns:
+            observation (dict): The initial observation
+            info (dict): Additional information
+        """
+        # Place guards randomly, avoiding start and goal positions
+        rnd_indices = np.random.choice(range(1, len(self.rooms)-1), size=len(self.guards), replace=False)
         guard_pos = [self.rooms[i] for i in rnd_indices]
+        
+        # Initialize state
         self.current_state = {
-            'player_position': (0, 0),
+            'player_position': (0, 0),  # Player starts at top-left corner
             'player_health': 'Full',
             'guard_positions': {
                 guard: pos for guard, pos in zip(self.guard_names, guard_pos)
-            }  # Guards in random rooms (not the goal or the starting)
+            }
         }
-        return self.get_observation(), 0, False, {}
+        return self.get_observation(), {}
 
     def get_observation(self):
+        """
+        Constructs the observation from the current state.
+        
+        Returns:
+            observation (dict): Current observation including player position,
+                               health, and information about guards in the same room
+        """
         guard_in_cell = None
         guard_positions = self.current_state['guard_positions']
         player_position = self.current_state['player_position']
+        
+        # Check if any guard is in the same room as the player
         for guard in guard_positions:
             if guard_positions[guard] == player_position:
                 guard_in_cell = guard
@@ -84,15 +107,29 @@ class CastleEscapeEnv(gym.Env):
         return obs
 
     def is_terminal(self):
-        """Check if the game has reached a terminal state"""
-        if self.current_state['player_position'] == self.goal_room:  # Reaching the goal means victory
+        """
+        Check if the game has reached a terminal state.
+        
+        Returns:
+            str or False: 'goal' if player reached the exit, 'defeat' if health is critical,
+                         False otherwise
+        """
+        if self.current_state['player_position'] == self.goal_room:
             return 'goal'
-        if self.current_state['player_health'] == 'Critical':  # Losing health 3 times results in defeat
+        if self.current_state['player_health'] == 'Critical':
             return 'defeat'
         return False
 
     def move_player(self, action):
-        """Move player based on the action, but prevent movement if a guard is in the same room"""
+        """
+        Move player based on the action, but prevent movement if a guard is in the same room.
+        
+        Parameters:
+            action (str): Direction to move ('UP', 'DOWN', 'LEFT', 'RIGHT')
+            
+        Returns:
+            tuple: (result message, reward)
+        """
         current_position = self.current_state['player_position']
         guards_in_room = [
             guard for guard in self.guards
@@ -120,7 +157,7 @@ class CastleEscapeEnv(gym.Env):
             if random.random() <= 0.9:
                 self.current_state['player_position'] = new_position
             else:
-                # 10% chance to move to a random adjacent cell
+                # 10% chance to move to a random adjacent cell (slippery floor)
                 adjacent_positions = [
                     directions[act] for act in directions if act != action
                 ]
@@ -135,7 +172,10 @@ class CastleEscapeEnv(gym.Env):
             return "Out of bounds!", 0
 
     def move_player_to_random_adjacent(self):
-        """Move player to a random adjacent cell without going out of bounds"""
+        """
+        Move player to a random adjacent cell without going out of bounds.
+        Used after combat or successful hiding.
+        """
         x, y = self.current_state['player_position']
         directions = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
 
@@ -150,7 +190,12 @@ class CastleEscapeEnv(gym.Env):
             self.current_state['player_position'] = random.choice(adjacent_positions)
 
     def try_fight(self):
-        """Player chooses to fight the guard"""
+        """
+        Player chooses to fight the guard in the same room.
+        
+        Returns:
+            tuple: (result message, reward)
+        """
         current_position = self.current_state['player_position']
         guards_in_room = [
             guard for guard in self.guards
@@ -175,7 +220,12 @@ class CastleEscapeEnv(gym.Env):
         return "No guard to fight!", 0
 
     def try_hide(self):
-        """Player attempts to hide from the guard"""
+        """
+        Player attempts to hide from the guard in the same room.
+        
+        Returns:
+            tuple: (result message, reward)
+        """
         current_position = self.current_state['player_position']
         guards_in_room = [
             guard for guard in self.guards
@@ -195,7 +245,15 @@ class CastleEscapeEnv(gym.Env):
         return "No guard to hide from!", 0
 
     def play_turn(self, action):
-        """Take an action and update the state"""
+        """
+        Take an action and update the state.
+        
+        Parameters:
+            action (str): The action to take
+            
+        Returns:
+            tuple: (result message, reward)
+        """
         if action in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
             return self.move_player(action)
         elif action == 'FIGHT':
@@ -206,10 +264,17 @@ class CastleEscapeEnv(gym.Env):
             return "Invalid action!", 0
 
     def step(self, action):
-        """Performs one step in the environment"""
-
-        ## Thisis a fix for gym environment. 
-        if (isinstance(action, str)):
+        """
+        Performs one step in the environment.
+        
+        Parameters:
+            action (int or str): The action to take
+            
+        Returns:
+            tuple: (observation, reward, done, info)
+        """
+        # Handle both integer and string action inputs
+        if isinstance(action, str):
             action = self.actions.index(action)
 
         action_name = self.actions[action]
@@ -232,10 +297,17 @@ class CastleEscapeEnv(gym.Env):
         return observation, reward, done, info
 
     def render(self, mode='human'):
-        """Renders the current state"""
+        """
+        Renders the current state of the environment.
+        
+        Parameters:
+            mode (str): The rendering mode
+        """
         print(f"Current state: {self.current_state}")
 
     def close(self):
-        """Performs cleanup"""
+        """
+        Performs cleanup when environment is no longer needed.
+        """
         pass
 

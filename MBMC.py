@@ -2,22 +2,32 @@ import time
 import numpy as np
 from vis_gym import *
 
-gui_flag = False # Set to True to enable the game state visualization
+# Configuration
+gui_flag = False  # Set to True to enable the game state visualization
 setup(GUI=gui_flag)
-env = game # Gym environment already initialized within vis_gym.py
+env = game  # Gym environment initialized within vis_gym.py
 
 #env.render() # Uncomment to print game state info
 
-def hash(obs):
-	x,y = obs['player_position']
-	h = obs['player_health']
-	g = obs['guard_in_cell']
-	if not g:
-		g = 0
-	else:
-		g = int(g[-1])
+def hash_state(obs):
+    """
+    Converts an observation into a unique integer hash value.
+    
+    Parameters:
+    - obs (dict): Observation containing player position, health, and guard information
+    
+    Returns:
+    - int: Unique hash value representing the state
+    """
+    x, y = obs['player_position']
+    h = obs['player_health']
+    g = obs['guard_in_cell']
+    if not g:
+        g = 0
+    else:
+        g = int(g[-1])
 
-	return x*(5*3*5) + y*(3*5) + h*5 + g
+    return x*(5*3*5) + y*(3*5) + h*5 + g
 
 '''
 
@@ -62,44 +72,53 @@ Complete the function below to do the following:
 '''
 
 def estimate_victory_probability(num_episodes=1000000):
-	"""
-    Probability estimator
-
-    Parameters:
-    - num_episodes (int): Number of episodes to run.
-
-    Returns:
-    - P (numpy array): Empirically estimated probability of defeating guards 1-4.
     """
-	np.random.seed(0)
-	P = np.zeros(len(env.guards))
-	
-	num_of_fights = np.zeros(len(env.guards))
-	num_of_success = np.zeros(len(env.guards))
+    Estimates the probability of defeating each guard in combat based on
+    simulated gameplay episodes.
+    
+    Parameters:
+    - num_episodes (int): Number of episodes to simulate
+    
+    Returns:
+    - P (numpy array): Estimated probability of defeating guards 1-4
+    """
+    np.random.seed(0)
+    P = np.zeros(len(env.guards))
+    
+    # Tracking metrics
+    num_of_fights = np.zeros(len(env.guards))
+    num_of_success = np.zeros(len(env.guards))
 
-	for _ in range(num_episodes):
-		obs, reward, done, info = env.reset()
+    for _ in range(num_episodes):
+        obs, reward, done, info = env.reset()
 
-		while not done:
-			guard_in_cell = obs['guard_in_cell']
-			if guard_in_cell:
-				action = 4  # Set action to fight
-				obs, reward, done, info = env.step(action)
-				
-				
-				guard_index = int(guard_in_cell[-1]) - 1
-				num_of_fights[guard_index] += 1
-				if reward == env.rewards['combat_win']:
-					num_of_success[guard_index] += 1
-			else:
-				# If no guard
-				obs, reward, done, info = env.step(np.random.randint(4))  
+        while not done:
+            guard_in_cell = obs['guard_in_cell']
+            if guard_in_cell:
+                # When encountering a guard, always choose to fight
+                action = 4  # Fight action
+                obs, reward, done, info = env.step(action)
+                
+                # Track combat outcomes
+                guard_index = int(guard_in_cell[-1]) - 1
+                num_of_fights[guard_index] += 1
+                if reward == env.rewards['combat_win']:
+                    num_of_success[guard_index] += 1
+            else:
+                # If no guard present, take a random movement action
+                obs, reward, done, info = env.step(np.random.randint(4))
+                
+            # Update visualization if GUI enabled
+            if gui_flag:
+                refresh(obs, reward, done, info)
 
-	P = np.divide(num_of_success, num_of_fights, where=num_of_fights > 0)  
-	print("Fight Count:", num_of_fights)
-	print("Victory Count:", num_of_success)
+    # Calculate victory probabilities
+    P = np.divide(num_of_success, num_of_fights, where=num_of_fights > 0)  
+    print("Fight Count:", num_of_fights)
+    print("Victory Count:", num_of_success)
 
-	return P
+    return P
 
+# Run simulation with 10,000 episodes
 probability_of_victory = estimate_victory_probability(num_episodes=10000)
 print("Victory Probabilities for Guards 1-4:", probability_of_victory)
